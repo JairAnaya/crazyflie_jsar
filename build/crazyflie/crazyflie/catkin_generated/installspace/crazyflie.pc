@@ -1,0 +1,8 @@
+prefix=/home/lrm/crazyflie_jsar/install
+
+Name: crazyflie
+Description: Description of crazyflie
+Version: 0.0.1
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib 
+Requires: message_runtime std_msgs tf

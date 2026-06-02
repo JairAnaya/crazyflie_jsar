@@ -1,0 +1,8 @@
+prefix=/home/lrm/crazyflie_jsar/install
+
+Name: crazyflie_jsar
+Description: Description of crazyflie_jsar
+Version: 0.0.1
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

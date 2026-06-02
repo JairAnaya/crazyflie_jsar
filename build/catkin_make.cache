@@ -1,0 +1,2 @@
+crazyflie/crazyflie:crazyflie/crazyflie_jsar:crazyflie/vrpn_client_ros
+-DCATKIN_DEVEL_PREFIX=/home/lrm/crazyflie_jsar/devel -DCMAKE_INSTALL_PREFIX=/home/lrm/crazyflie_jsar/install -G Unix Makefiles
