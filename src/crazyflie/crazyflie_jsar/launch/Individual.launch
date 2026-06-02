@@ -1,0 +1,110 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Configuración del joystick -->
+  <arg name="joy_dev" default="/dev/input/js0" />
+
+  <!-- Configuración del Crazyflie -->
+  <arg name="uri1" default="radio://0/70/2M/E7E7E7E703" />
+  <arg name="frame1" default="crazyflie1" />
+
+  <!-- Parámetros de formación -->
+  <arg name="xi1" default="0.0" />
+  <arg name="yi1" default="0.0" />
+  <arg name="zi1" default="0.0" />
+
+    <!-- 
+  Seleccione el controlador de orientacion:
+  1.- PID (Bitcraze)
+  2.- Mellinger (Bitcraze)
+  3.- INDI (Bitcraze)
+  4.- Brescanccini (Bitcraze)
+  5.- Lee (Bitcraze)
+  6.- JSAR
+    -->
+
+      <!-- 
+  Seleccione el controlador de orientacion:
+
+  1.- PID (Bitcraze)
+  2.- Mellinger (Bitcraze)
+  3.- INDI (Bitcraze)
+  4.- Brescanccini (Bitcraze)
+  5.- Sliding Mode Control
+  6.- Backstepping
+  7.- Twisting Continuo
+  8.- Super Twisting Algoritm
+  9.- Nonsingular Terminal Sliding Mode Control
+  10.- Singular Terminal Sliding Mode Control
+  11.- PID (Newtons)
+  12.- Mix (TC, STSMC)
+    -->
+
+  <arg name="n1" default="6" />
+
+  <!-- Parámetros de la trayectoria deseada -->
+  <arg name="r" default="0.3" />
+  <arg name="h" default="0.4" />
+  <arg name="takeoff_rate"    default="0.3" />   <!-- 1/s: t_95% = 3/rate = 10s -->
+  <arg name="traj_duration"   default="60.0" />
+
+  <include file="$(find crazyflie)/launch/crazyflie_server.launch">
+  </include>
+
+  <node pkg="vrpn_client_ros" type="vrpn_client_node" name="vrpn_client_node" output="screen">
+    <rosparam subst_value="true">
+      server: "192.168.2.10" 
+      port: "3883" 
+      update_frequency: 100.0
+      frame_id: world
+      use_server_time: false
+      broadcast_tf: true
+      refresh_tracker_frequency: 1.0
+    </rosparam>
+  </node>
+
+  <group ns="crazyflie1">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri1)" />
+      <arg name="tf_prefix" value="crazyflie1" />
+    </include>
+
+    <node name="update_params_node" pkg="crazyflie_jsar" type="update_params.py" output="screen" launch-prefix="bash -c 'sleep 15; $0 $@' ">
+      <param name="frame" value="$(arg frame1)"/>
+      <param name="n" value="$(arg n1)"/>
+    </node>
+
+    <node name="joy" pkg="joy" type="joy_node" output="screen">
+      <param name="dev" value="$(arg joy_dev)" />
+    </node>
+
+    <!-- Retroalimentación de posición al estimador Kalman -->
+    <node name="pose1" pkg="crazyflie_jsar" type="vrpn.py" output="screen">
+      <param name="topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <!-- Inicialización Kalman con OptiTrack antes de cualquier comando -->
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen"
+          launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame1)" />
+      <param name="n"          value="$(arg n1)" />
+      <param name="pose_topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <node name="setpoint" pkg="crazyflie_jsar" type="setpoint.py"
+          output="screen"
+          launch-prefix="bash -c 'sleep 8; $0 $@' ">
+      <param name="xi"           value="$(arg xi1)" />
+      <param name="yi"           value="$(arg yi1)" />
+      <param name="zi"           value="$(arg zi1)" />
+      <param name="h"            value="$(arg h)" />
+      <param name="r"            value="$(arg r)" />
+      <param name="takeoff_rate" value="$(arg takeoff_rate)" />
+      <param name="traj_duration" value="$(arg traj_duration)" />
+      <param name="vrpn_topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+  </group>
+</launch>

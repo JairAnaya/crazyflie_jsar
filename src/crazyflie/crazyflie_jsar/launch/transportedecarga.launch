@@ -1,0 +1,166 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="joy_dev"     default="/dev/input/js0" />
+
+  <arg name="uri1"        default="radio://0/80/2M/E7E7E7E701" />
+  <arg name="uri2"        default="radio://0/80/2M/E7E7E7E702" />
+  <arg name="uri3"        default="radio://0/80/2M/E7E7E7E703" />
+
+  <arg name="frame1"      default="crazyflie1" />
+  <arg name="frame2"      default="crazyflie2" />
+  <arg name="frame3"      default="crazyflie3" />
+  <arg name="frame_carga" default="carga"      />
+
+  <arg name="xi1" default="-0.163" />  <arg name="yi1" default="-0.094" />
+  <arg name="xi2" default=" 0.000" />  <arg name="yi2" default=" 0.189" />
+  <arg name="xi3" default=" 0.163" />  <arg name="yi3" default="-0.094" />
+
+  <arg name="n"   default="6" />
+
+  <arg name="xc"  default="0.0" />  <arg name="yc" default="0.0" />
+  <arg name="zc"  default="0.0" />  <arg name="h"  default="0.1" />
+  <arg name="r"   default="0.2" />
+  <arg name="trajectory_duration" default="60.0" />
+
+  <arg name="z_safe"          default="0.28"  />
+  <arg name="takeoff_rate"    default="0.15"  />
+  <arg name="Kp_xy"           default="0.8"   />
+  <arg name="stab_ramp_time"  default="3.0"   />
+  <arg name="xy_stable_thr"   default="0.04"  />
+  <arg name="formation_thr"   default="0.05"  />
+
+  <arg name="ci1_x" default="-0.163" />  <arg name="ci1_y" default="-0.094" />  <arg name="ci1_z" default="0.189" />
+  <arg name="ci2_x" default=" 0.000" />  <arg name="ci2_y" default=" 0.189" />  <arg name="ci2_z" default="0.189" />
+  <arg name="ci3_x" default=" 0.163" />  <arg name="ci3_y" default="-0.094" />  <arg name="ci3_z" default="0.189" />
+
+  <include file="$(find crazyflie)/launch/crazyflie_server.launch" />
+
+  <node pkg="vrpn_client_ros" type="vrpn_client_node"
+        name="vrpn_client_node" output="screen">
+    <rosparam subst_value="true">
+      server:                    "192.168.2.10"
+      port:                      "3883"
+      update_frequency:          30.0
+      frame_id:                  world
+      use_server_time:           false
+      broadcast_tf:              true
+      refresh_tracker_frequency: 1.0
+    </rosparam>
+  </node>
+
+  <node name="joy" pkg="joy" type="joy_node" output="screen">
+    <param name="dev" value="$(arg joy_dev)" />
+  </node>
+
+  <node name="carga" pkg="crazyflie_jsar" type="cargalider.py" output="screen">
+    <param name="carga_vrpn_topic"
+           value="/vrpn_client_node/$(arg frame_carga)/pose" />
+  </node>
+
+  <group ns="crazyflie1">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri1)" />
+      <arg name="tf_prefix" value="crazyflie1" />
+    </include>
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn.py" output="screen">
+      <param name="topic" value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen" launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame1)" />
+      <param name="n"          value="$(arg n)"      />
+      <param name="pose_topic" value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+    <node name="transportador_node" pkg="crazyflie_jsar"
+          type="transportadorseguidor.py" output="screen"
+          launch-prefix="bash -c 'sleep 10; $0 $@' ">
+      <param name="xi"    value="$(arg xi1)" />  <param name="yi" value="$(arg yi1)" />  <param name="zi" value="0.0" />
+      <param name="xc"    value="$(arg xc)"  />  <param name="yc" value="$(arg yc)"  />  <param name="zc" value="$(arg zc)" />
+      <param name="h"     value="$(arg h)"   />  <param name="r"  value="$(arg r)"   />
+      <param name="trajectory_duration" value="$(arg trajectory_duration)" />
+      <param name="ci_x"  value="$(arg ci1_x)" />  <param name="ci_y" value="$(arg ci1_y)" />  <param name="ci_z" value="$(arg ci1_z)" />
+      <param name="z_safe"         value="$(arg z_safe)"         />
+      <param name="takeoff_rate"   value="$(arg takeoff_rate)"   />
+      <param name="Kp_xy"          value="$(arg Kp_xy)"          />
+      <param name="stab_ramp_time" value="$(arg stab_ramp_time)" />
+      <param name="xy_stable_thr"  value="$(arg xy_stable_thr)"  />
+      <param name="formation_thr"  value="$(arg formation_thr)"  />
+      <param name="my_vrpn_topic"  value="/vrpn_client_node/$(arg frame1)/pose" />
+      <param name="publica_trayectoria" value="true" />
+    </node>
+  </group>
+
+  <group ns="crazyflie2">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri2)" />
+      <arg name="tf_prefix" value="crazyflie2" />
+    </include>
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn2.py" output="screen">
+      <param name="topic" value="/vrpn_client_node/$(arg frame2)/pose" />
+    </node>
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen" launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame2)" />
+      <param name="n"          value="$(arg n)"      />
+      <param name="pose_topic" value="/vrpn_client_node/$(arg frame2)/pose" />
+    </node>
+    <node name="transportador_node" pkg="crazyflie_jsar"
+          type="transportadorseguidor.py" output="screen"
+          launch-prefix="bash -c 'sleep 10; $0 $@' ">
+      <param name="xi"    value="$(arg xi2)" />  <param name="yi" value="$(arg yi2)" />  <param name="zi" value="0.0" />
+      <param name="xc"    value="$(arg xc)"  />  <param name="yc" value="$(arg yc)"  />  <param name="zc" value="$(arg zc)" />
+      <param name="h"     value="$(arg h)"   />  <param name="r"  value="$(arg r)"   />
+      <param name="trajectory_duration" value="$(arg trajectory_duration)" />
+      <param name="ci_x"  value="$(arg ci2_x)" />  <param name="ci_y" value="$(arg ci2_y)" />  <param name="ci_z" value="$(arg ci2_z)" />
+      <param name="z_safe"         value="$(arg z_safe)"         />
+      <param name="takeoff_rate"   value="$(arg takeoff_rate)"   />
+      <param name="Kp_xy"          value="$(arg Kp_xy)"          />
+      <param name="stab_ramp_time" value="$(arg stab_ramp_time)" />
+      <param name="xy_stable_thr"  value="$(arg xy_stable_thr)"  />
+      <param name="formation_thr"  value="$(arg formation_thr)"  />
+      <param name="my_vrpn_topic"  value="/vrpn_client_node/$(arg frame2)/pose" />
+      <param name="publica_trayectoria" value="false" />
+    </node>
+  </group>
+
+  <group ns="crazyflie3">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri3)" />
+      <arg name="tf_prefix" value="crazyflie3" />
+    </include>
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn3.py" output="screen">
+      <param name="topic" value="/vrpn_client_node/$(arg frame3)/pose" />
+    </node>
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen" launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame3)" />
+      <param name="n"          value="$(arg n)"      />
+      <param name="pose_topic" value="/vrpn_client_node/$(arg frame3)/pose" />
+    </node>
+    <node name="transportador_node" pkg="crazyflie_jsar"
+          type="transportadorseguidor.py" output="screen"
+          launch-prefix="bash -c 'sleep 10; $0 $@' ">
+      <param name="xi"    value="$(arg xi3)" />  <param name="yi" value="$(arg yi3)" />  <param name="zi" value="0.0" />
+      <param name="xc"    value="$(arg xc)"  />  <param name="yc" value="$(arg yc)"  />  <param name="zc" value="$(arg zc)" />
+      <param name="h"     value="$(arg h)"   />  <param name="r"  value="$(arg r)"   />
+      <param name="trajectory_duration" value="$(arg trajectory_duration)" />
+      <param name="ci_x"  value="$(arg ci3_x)" />  <param name="ci_y" value="$(arg ci3_y)" />  <param name="ci_z" value="$(arg ci3_z)" />
+      <param name="z_safe"         value="$(arg z_safe)"         />
+      <param name="takeoff_rate"   value="$(arg takeoff_rate)"   />
+      <param name="Kp_xy"          value="$(arg Kp_xy)"          />
+      <param name="stab_ramp_time" value="$(arg stab_ramp_time)" />
+      <param name="xy_stable_thr"  value="$(arg xy_stable_thr)"  />
+      <param name="formation_thr"  value="$(arg formation_thr)"  />
+      <param name="my_vrpn_topic"  value="/vrpn_client_node/$(arg frame3)/pose" />
+      <param name="publica_trayectoria" value="false" />
+    </node>
+  </group>
+
+  <node name="guardar_experimento" pkg="crazyflie_jsar"
+        type="GuardarExperimento.py" output="screen"
+        launch-prefix="bash -c 'sleep 12; $0 $@' ">
+    <param name="output_dir"       value="$(env HOME)/Experimentos/Carga" />
+    <param name="carga_vrpn_topic" value="/vrpn_client_node/$(arg frame_carga)/pose" />
+  </node>
+
+</launch>

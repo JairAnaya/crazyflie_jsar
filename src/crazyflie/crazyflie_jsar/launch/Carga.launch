@@ -1,0 +1,229 @@
+<?xml version="1.0"?>
+<!--
+  LanzamientoTransporte.launch
+  ════════════════════════════════════════════════════════════════════
+  Sistema: Transporte cooperativo de carga con 2 Crazyflie (n = 3)
+  ════════════════════════════════════════════════════════════════════
+
+  Arquitectura (Sección 6 del reporte de avances):
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  LÍDER   = CARGA  (nodo carga.py)                               │
+  │    • Conoce la trayectoria deseada (círculo)                    │
+  │    • Publica /carga/desired_pose                                │
+  │    • Calcula y publica error de posición de la carga            │
+  │                                                                 │
+  │  SEGUIDORES / TRANSPORTADORES = Quads (nodo transportador.py)  │
+  │    • Cada quad lee /carga/desired_pose                          │
+  │    • Calcula su objetivo: ξ_di = ξ_c + Ci                      │
+  │    • Envía setpoint a su controlador PID interno (cmd_full)     │
+  └─────────────────────────────────────────────────────────────────┘
+
+  Vectores de formación Ci para n-1 = 2 quads (formación triangular)
+  con longitud de cable l = 0.2828 m y α = 45°:
+    L  = l·cos(45°) = √2/2 · l ≈ 0.3536 m
+    Zi = l·sin(45°) = √2/2 · l ≈ 0.3536 m
+
+  Distribución angular 120° → 0°, 120°, 240° (simplificado a 2 quads):
+    C1 = (−L,  0,  Zi)   quad en el "lado izquierdo"
+    C2 = ( L,  0,  Zi)   quad en el "lado derecho"
+
+  NOTA: Para usar 4 quads (formación cuadrada), duplica los grupos
+        crazyflie3 y crazyflie4 con los vectores Ci del Caso 2
+        del reporte (ec. 24).
+-->
+
+<launch>
+  <!-- ══════════════════════════════════════
+       Argumentos globales
+  ══════════════════════════════════════ -->
+  <arg name="joy_dev"  default="/dev/input/js0" />
+
+  <!-- URIs de los dos Crazyflies transportadores -->
+  <arg name="uri1"     default="radio://0/80/2M/E7E7E7E701" />
+  <arg name="uri2"     default="radio://1/60/2M/E7E7E7E704" />
+
+  <!-- Frames VRPN de los quads -->
+  <arg name="frame1"   default="crazyflie1" />
+  <arg name="frame2"   default="crazyflie2" />
+
+  <!-- Posición inicial de cada quad en el suelo (antes de despegar) -->
+  <arg name="xi1"      default="-0.2" />
+  <arg name="yi1"      default=" 0.0"  />
+  <arg name="zi1"      default=" 0.0"  />
+
+  <arg name="xi2"      default=" 0.2" />
+  <arg name="yi2"      default=" 0.0"  />
+  <arg name="zi2"      default=" 0.0"  />
+
+  <!-- Tipo de controlador interno (1=PID, ver crazyflie docs) -->
+  <arg name="n"        default="6" />
+
+  <!-- Altura de seguridad para despegue vertical (Fase 1) -->
+  <arg name="z_safe"   default="0.25" />
+  <!-- Tasa de ascenso Fase 1: t_95 = 3/takeoff_rate  (0.15 -> ~20 s) -->
+  <arg name="takeoff_rate"  default="0.20" />
+  <!-- Umbral de error para considerar "en formación" y pasar a Fase 3 (metros) -->
+  <arg name="formation_thr" default="0.05" />
+
+  <!-- Parámetros de trayectoria de la CARGA -->
+  <arg name="h"        default="0.1" />  <!-- altura de vuelo de la carga -->
+  <arg name="r"        default="0.2" />  <!-- radio del círculo -->
+  <arg name="xc"       default="0.0" />  <!-- posición inicial de la carga -->
+  <arg name="yc"       default="0.0" />
+  <arg name="zc"       default="0.0" />
+
+  <!-- Longitud del cable (metros) -->
+  <arg name="l_cable"  default="0.2828" />
+
+  <!--
+    Vectores Ci precalculados para formación triangular (2 quads), l = 0.5 m
+      L  = l·cos(45°) = 0.5 · 0.7071 ≈ 0.3536
+      Zi = l·sin(45°) = 0.5 · 0.7071 ≈ 0.3536
+    Quad 1: C1 = (−L, 0, Zi) = (−0.3536, 0, 0.3536)
+    Quad 2: C2 = ( L, 0, Zi) = ( 0.3536, 0, 0.3536)
+    (Si cambias l_cable, recalcula estos valores.)
+  -->
+  <arg name="ci1_x"    default="-0.2" />
+  <arg name="ci1_y"    default=" 0.0"    />
+  <arg name="ci1_z"    default=" 0.2" />
+
+  <arg name="ci2_x"    default=" 0.2" />
+  <arg name="ci2_y"    default=" 0.0"    />
+  <arg name="ci2_z"    default=" 0.2" />
+
+  <!-- ══════════════════════════════════════
+       Infraestructura común
+  ══════════════════════════════════════ -->
+  <include file="$(find crazyflie)/launch/crazyflie_server.launch" />
+
+  <!-- OptiTrack / VRPN -->
+  <node pkg="vrpn_client_ros" type="vrpn_client_node"
+        name="vrpn_client_node" output="screen">
+    <rosparam subst_value="true">
+      server:                  "192.168.2.10"
+      port:                    "3883"
+      update_frequency:        30.0
+      frame_id:                world
+      use_server_time:         false
+      broadcast_tf:            true
+      refresh_tracker_frequency: 1.0
+    </rosparam>
+  </node>
+
+  <!-- Joystick -->
+  <node name="joy" pkg="joy" type="joy_node" output="screen">
+    <param name="dev" value="$(arg joy_dev)" />
+  </node>
+
+  <!-- ══════════════════════════════════════
+       NODO LÍDER: LA CARGA
+       Publica /carga/desired_pose
+  ══════════════════════════════════════ -->
+  <node name="carga" pkg="crazyflie_jsar" type="carga.py"
+        output="screen"
+        launch-prefix="bash -c 'sleep 10; $0 $@' ">
+    <param name="xi" value="$(arg xc)" />
+    <param name="yi" value="$(arg yc)" />
+    <param name="zi" value="$(arg zc)" />
+    <param name="h"  value="$(arg h)"  />
+    <param name="r"  value="$(arg r)"  />
+    <!-- Si tienes un marcador VRPN en la carga, descomenta y ajusta: -->
+    <!-- <param name="carga_vrpn_topic"
+              value="/vrpn_client_node/carga/pose" /> -->
+  </node>
+
+  <!-- ══════════════════════════════════════
+       QUAD 1 (transportador izquierdo)
+  ══════════════════════════════════════ -->
+  <group ns="crazyflie1">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri"       value="$(arg uri1)" />
+      <arg name="tf_prefix" value="crazyflie1"  />
+    </include>
+
+    <!-- Retroalimentación de posición al estimador Kalman del Crazyflie -->
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn.py"
+          output="screen">
+      <param name="topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <!-- Inicialización Kalman con OptiTrack -->
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen"
+          launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame1)" />
+      <param name="n"          value="$(arg n)" />
+      <param name="pose_topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <!--
+      Nodo transportador:
+        • Lee /carga/desired_pose
+        • Calcula objetivo: ξ_d1 = ξ_carga + C1
+        • Envía cmd_full al controlador PID del Crazyflie
+    -->
+    <node name="transportador_node" pkg="crazyflie_jsar"
+          type="transportador.py" output="screen"
+          launch-prefix="bash -c 'sleep 10; $0 $@' ">
+      <!-- Posición inicial en el suelo -->
+      <param name="xi"    value="$(arg xi1)" />
+      <param name="yi"    value="$(arg yi1)" />
+      <param name="zi"    value="$(arg zi1)" />
+      <!-- Vector de formación C1 -->
+      <param name="ci_x"  value="$(arg ci1_x)" />
+      <param name="ci_y"  value="$(arg ci1_y)" />
+      <param name="ci_z"  value="$(arg ci1_z)" />
+      <param name="z_safe"        value="$(arg z_safe)" />
+      <param name="takeoff_rate"  value="$(arg takeoff_rate)" />
+      <param name="formation_thr" value="$(arg formation_thr)" />
+      <!-- VRPN propio (opcional, para detección de aterrizaje) -->
+      <param name="my_vrpn_topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+  </group>
+
+  <!-- ══════════════════════════════════════
+       QUAD 2 (transportador derecho)
+  ══════════════════════════════════════ -->
+  <group ns="crazyflie2">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri"       value="$(arg uri2)" />
+      <arg name="tf_prefix" value="crazyflie2"  />
+    </include>
+
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn2.py"
+          output="screen">
+      <param name="topic"
+             value="/vrpn_client_node/$(arg frame2)/pose" />
+    </node>
+
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen"
+          launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame2)" />
+      <param name="n"          value="$(arg n)" />
+      <param name="pose_topic"
+             value="/vrpn_client_node/$(arg frame2)/pose" />
+    </node>
+
+    <node name="transportador_node" pkg="crazyflie_jsar"
+          type="transportador.py" output="screen"
+          launch-prefix="bash -c 'sleep 10; $0 $@' ">
+      <param name="xi"    value="$(arg xi2)" />
+      <param name="yi"    value="$(arg yi2)" />
+      <param name="zi"    value="$(arg zi2)" />
+      <!-- Vector de formación C2 -->
+      <param name="ci_x"  value="$(arg ci2_x)" />
+      <param name="ci_y"  value="$(arg ci2_y)" />
+      <param name="ci_z"  value="$(arg ci2_z)" />
+      <param name="z_safe"        value="$(arg z_safe)" />
+      <param name="takeoff_rate"  value="$(arg takeoff_rate)" />
+      <param name="formation_thr" value="$(arg formation_thr)" />
+      <param name="my_vrpn_topic"
+             value="/vrpn_client_node/$(arg frame2)/pose" />
+    </node>
+  </group>
+
+</launch>

@@ -1,0 +1,146 @@
+<?xml version="1.0"?>
+<!-- Launch para DIAGNÓSTICO DE HOVER — sin trayectoria circular -->
+<launch>
+  <arg name="joy_dev"  default="/dev/input/js0" />
+  <arg name="uri1"     default="radio://0/80/2M/E7E7E7E701" />
+  <arg name="frame1"   default="crazyflie1" />
+    <!-- 
+  Seleccione el controlador de orientacion:
+  1.- PID (Bitcraze)
+  2.- Mellinger (Bitcraze)
+  3.- INDI (Bitcraze)
+  4.- Brescanccini (Bitcraze)
+  5.- Lee (Bitcraze)
+  6.- JSAR
+    -->
+
+      <!-- 
+  Seleccione el controlador de orientacion:
+
+  1.- PID (Bitcraze)
+  2.- Mellinger (Bitcraze)
+  3.- INDI (Bitcraze)
+  4.- Brescanccini (Bitcraze)
+  5.- Sliding Mode Control
+  6.- Backstepping
+  7.- Twisting Continuo
+  8.- Super Twisting Algoritm
+  9.- Nonsingular Terminal Sliding Mode Control
+  10.- Singular Terminal Sliding Mode Control
+  11.- PID (Newtons)
+  12.- Mix (TC, STSMC)
+    -->
+  <arg name="n1"       default="6" />
+  <arg name="h"        default="0.3" />   <!-- altura conservadora para diagnostico -->
+  <arg name="takeoff_rate"       default="0.3" />
+  <arg name="obs_activate_delay" default="10.0" />
+  <arg name="obs_stable_thr"     default="0.08" />
+
+  <include file="$(find crazyflie)/launch/crazyflie_server.launch" />
+
+  <node pkg="vrpn_client_ros" type="vrpn_client_node"
+        name="vrpn_client_node" output="screen">
+    <rosparam subst_value="true">
+      server:                    "192.168.2.10"
+      port:                      "3883"
+      update_frequency:          100.0
+      frame_id:                  world
+      use_server_time:           false
+      broadcast_tf:              true
+      refresh_tracker_frequency: 1.0
+    </rosparam>
+  </node>
+
+  <group ns="crazyflie1">
+
+    <!--
+      crazyflie_add.launch solo acepta: uri, tf_prefix, roll_trim,
+      pitch_trim, enable_logging, enable_parameters, use_ros_time.
+      Los LogBlocks se configuran con rosparam ANTES de que el nodo
+      arranque, en el mismo namespace.
+    -->
+
+    <!-- LogBlocks: crazyflie_ros los lee del parĂĄmetro /crazyflie1/logs -->
+    <rosparam subst_value="true">
+      logs:
+        - name: "ctrlJair_vel"
+          frequency: 20
+          variables:
+            - ctrlJair.vel_kx
+            - ctrlJair.vel_ky
+            - ctrlJair.vel_kz
+            - ctrlJair.vel_ox
+            - ctrlJair.vel_oy
+            - ctrlJair.vel_oz
+            - ctrlJair.dxi_x
+            - ctrlJair.dxi_y
+            - ctrlJair.dxi_z
+        - name: "ctrlJair_pos"
+          frequency: 20
+          variables:
+            - ctrlJair.pos_kx
+            - ctrlJair.pos_ky
+            - ctrlJair.pos_kz
+            - ctrlJair.pos_ox
+            - ctrlJair.pos_oy
+            - ctrlJair.pos_oz
+            - ctrlJair.epos_x
+            - ctrlJair.epos_y
+            - ctrlJair.epos_z
+            - ctrlJair.thrustSi
+        - name: "ctrlJair_att"
+          frequency: 20
+          variables:
+            - ctrlJair.rpy_x
+            - ctrlJair.rpy_y
+            - ctrlJair.rpy_z
+            - ctrlJair.tau_x
+            - ctrlJair.tau_y
+            - ctrlJair.tau_z
+            - ctrlJair.s_x
+            - ctrlJair.s_y
+            - ctrlJair.s_z
+    </rosparam>
+
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri"            value="$(arg uri1)" />
+      <arg name="tf_prefix"      value="crazyflie1"  />
+      <arg name="enable_logging" value="True" />
+    </include>
+
+    <node name="joy" pkg="joy" type="joy_node" output="screen">
+    <param name="dev" value="$(arg joy_dev)" />
+  </node>
+
+    <node name="pose1" pkg="crazyflie_jsar" type="vrpn.py" output="screen">
+      <param name="topic" value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py"
+          output="screen"
+          launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame"      value="$(arg frame1)" />
+      <param name="n"          value="$(arg n1)" />
+      <param name="pose_topic" value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <node name="hover" pkg="crazyflie_jsar" type="setpoint_hover.py"
+          output="screen"
+          launch-prefix="bash -c 'sleep 8; $0 $@' ">
+      <param name="h"                  value="$(arg h)" />
+      <param name="takeoff_rate"       value="$(arg takeoff_rate)" />
+      <param name="obs_activate_delay" value="$(arg obs_activate_delay)" />
+      <param name="obs_stable_thr"     value="$(arg obs_stable_thr)" />
+      <param name="cf_namespace"       value="/crazyflie1" />
+      <param name="vrpn_topic"
+             value="/vrpn_client_node/$(arg frame1)/pose" />
+    </node>
+
+    <node name="observer_recorder" pkg="crazyflie_jsar"
+          type="observer_recorder.py" output="screen">
+      <param name="cf_name"    value="$(arg frame1)" />
+      <param name="output_dir" value="$(env HOME)/Experimentos_Observer" />
+    </node>
+    
+  </group>
+</launch>

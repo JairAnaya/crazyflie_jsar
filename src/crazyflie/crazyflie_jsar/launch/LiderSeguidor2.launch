@@ -1,0 +1,140 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="joy_dev" default="/dev/input/js0" />
+
+  <arg name="uri1" default="radio://1/80/2M/E7E7E7E701" /> 
+  <arg name="uri2" default="radio://0/60/2M/E7E7E7E704" /> 
+  <arg name="uri3" default="radio://2/90/2M/E7E7E7E702" /> 
+
+  <arg name="frame1" default="crazyflie1" />
+  <arg name="frame2" default="crazyflie2" />
+  <arg name="frame3" default="crazyflie3" />
+
+  <arg name="xi1" default="0.0" />
+  <arg name="yi1" default="-0.2" />
+  <arg name="zi1" default="0.0" />
+
+  <arg name="xi2" default="0.14" />
+  <arg name="yi2" default="0.14" />
+  <arg name="zi2" default="0.0" />
+
+  <arg name="xi3" default="-0.14" />
+  <arg name="yi3" default="0.14" />
+  <arg name="zi3" default="0.0" />
+
+      <!-- 
+  Seleccione el controlador de orientacion:
+  1.- PID (Bitcraze)
+  2.- Mellinger (Bitcraze)
+  3.- INDI (Bitcraze)
+  4.- Brescanccini (Bitcraze)
+  5.- Lee (Bitcraze)
+  6.- JSAR
+    -->
+
+  <arg name="h" default="0.4" />
+  <arg name="r" default="0.3" /> 
+  <arg name="n" default="6" />
+
+  <include file="$(find crazyflie)/launch/crazyflie_server.launch" />
+
+  <node pkg="vrpn_client_ros" type="vrpn_client_node" name="vrpn_client_node" output="screen">
+    <rosparam subst_value="true">
+      server: "192.168.2.10" 
+      port: "3883" 
+      update_frequency: 30.0
+      frame_id: world
+      use_server_time: false
+      broadcast_tf: true
+      refresh_tracker_frequency: 1.0
+    </rosparam>
+  </node>
+  
+  <node name="joy" pkg="joy" type="joy_node" output="screen">
+    <param name="dev" value="$(arg joy_dev)" />
+  </node>
+
+  <group ns="crazyflie1">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri1)" />
+      <arg name="tf_prefix" value="crazyflie1" />
+    </include>
+
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn.py" output="screen"> 
+      <param name="topic" value="/vrpn_client_node/crazyflie1/pose" />
+    </node>
+
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py" output="screen" launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame" value="$(arg frame1)"/>
+      <param name="n" value="$(arg n)"/>
+      <param name="pose_topic" value="/vrpn_client_node/crazyflie1/pose"/>
+    </node>
+
+    <node name="lider_trajectory" pkg="crazyflie_jsar" type="lider.py" output="screen" launch-prefix="bash -c 'sleep 10; $0 $@' ">
+        <param name="xi" value="$(arg xi1)" />
+        <param name="yi" value="$(arg yi1)" />
+        <param name="zi" value="$(arg zi1)" />
+        <param name="h" value="$(arg h)" />
+        <param name="r" value="$(arg r)" />
+    </node>
+  </group>
+
+  <group ns="crazyflie2">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri2)" />
+      <arg name="tf_prefix" value="crazyflie2" />
+    </include>
+
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py" output="screen" launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame" value="$(arg frame2)"/>
+      <param name="n" value="$(arg n)"/>
+      <param name="pose_topic" value="/vrpn_client_node/crazyflie2/pose"/>
+    </node>
+
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn2.py" output="screen"> 
+        <param name="topic" value="/vrpn_client_node/crazyflie2/pose" />    
+    </node>
+
+    <node name="seguidor_node" pkg="crazyflie_jsar" type="seguidor.py" output="screen" launch-prefix="bash -c 'sleep 10; $0 $@' ">
+        <param name="xi" value="$(arg xi2)" />
+        <param name="yi" value="$(arg yi2)" />
+        <param name="zi" value="$(arg zi2)" />
+        
+        <param name="leader_xi" value="$(arg xi1)" />
+        <param name="leader_yi" value="$(arg yi1)" />
+        <param name="leader_zi" value="$(arg zi1)" />
+        
+        <param name="leader_topic" value="/vrpn_client_node/crazyflie1/pose" />
+    </node>
+  </group>
+
+  <group ns="crazyflie3">
+    <include file="$(find crazyflie)/launch/crazyflie_add.launch">
+      <arg name="uri" value="$(arg uri3)" />
+      <arg name="tf_prefix" value="crazyflie3" />
+    </include>
+
+    <node name="smart_reset_node" pkg="crazyflie_jsar" type="smart_reset.py" output="screen" launch-prefix="bash -c 'sleep 3; $0 $@' ">
+      <param name="frame" value="$(arg frame3)"/>
+      <param name="n" value="$(arg n)"/>
+      <param name="pose_topic" value="/vrpn_client_node/crazyflie3/pose"/>
+    </node>
+
+    <node name="pose_feedback" pkg="crazyflie_jsar" type="vrpn3.py" output="screen"> 
+        <param name="topic" value="/vrpn_client_node/crazyflie3/pose" />    
+    </node>
+
+    <node name="seguidor_node" pkg="crazyflie_jsar" type="seguidor2.py" output="screen" launch-prefix="bash -c 'sleep 10; $0 $@' ">
+        <param name="xi" value="$(arg xi3)" />
+        <param name="yi" value="$(arg yi3)" />
+        <param name="zi" value="$(arg zi3)" />
+        
+        <param name="leader_xi" value="$(arg xi1)" />
+        <param name="leader_yi" value="$(arg yi1)" />
+        <param name="leader_zi" value="$(arg zi1)" />
+        
+        <param name="leader_topic" value="/vrpn_client_node/crazyflie1/pose" />
+    </node>
+  </group>
+
+</launch>
